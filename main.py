@@ -1,12 +1,16 @@
-import os, glob, time, random, cv2
+import glob
+import os
+import cv2
+import re
 import numpy as np
+
 import matplotlib.pyplot as plt
-from keras.preprocessing.image import ImageDataGenerator
-from keras.models import load_model, Model
-from keras.preprocessing import image
+from keras.callbacks import TensorBoard
 from keras.layers import Input, Dense, Flatten, Dropout, Activation, Conv2D, MaxPool2D
 from keras.layers.normalization import BatchNormalization
-from keras.callbacks import TensorBoard
+from keras.models import Model
+from keras.preprocessing.image import ImageDataGenerator
+from keras.utils import to_categorical
 
 
 def processing_data(data_path, height, width, batch_size=128, validation_split=0.1):
@@ -44,28 +48,40 @@ def processing_data(data_path, height, width, batch_size=128, validation_split=0
         rescale=1. / 255,
         validation_split=validation_split)
 
-    train_generator = train_data.flow_from_directory(
-        # 提供的路径下面需要有子目录
-        data_path,
-        # 整数元组 (height, width)，默认：(256, 256)。 所有的图像将被调整到的尺寸。
-        target_size=(height, width),
-        # 一批数据的大小
-        batch_size=batch_size,
-        # "categorical", "binary", "sparse", "input" 或 None 之一。
-        # 默认："categorical",返回one-hot 编码标签。
-        class_mode='categorical',
-        # 数据子集 ("training" 或 "validation")
-        subset='training',
-        seed=0)
-    validation_generator = validation_data.flow_from_directory(
-        data_path,
-        target_size=(height, width),
-        batch_size=batch_size,
-        class_mode='categorical',
-        subset='validation',
-        seed=0)
+    img_list = img_list = glob.glob(os.path.join(data_path, '*/*.jpg'))
+    x = np.array(
+        [np.array([cv2.resize(cv2.imread(img_path), (height, width)), re.split("[\\\\|/]", img_path)[-2]]) for img_path in
+         img_list])
+    labels = set(x[:, 1])
+    labels = list(labels)
+    dic = {value: key for key, value in enumerate(labels)}
+    y = to_categorical([dic[lis] for lis in x[:, 1]])
+    x = np.stack(x[:, 0])
 
-    return train_generator, validation_generator
+    # train_generator = train_data.flow_from_directory(
+    #     # 提供的路径下面需要有子目录
+    #     data_path,
+    #     # 整数元组 (height, width)，默认：(256, 256)。 所有的图像将被调整到的尺寸。
+    #     target_size=(height, width),
+    #     # 一批数据的大小
+    #     batch_size=batch_size,
+    #     # "categorical", "binary", "sparse", "input" 或 None 之一。
+    #     # 默认："categorical",返回one-hot 编码标签。
+    #     class_mode='categorical',
+    #     # 数据子集 ("training" 或 "validation")
+    #     subset='training',
+    #     seed=0)
+    # validation_generator = validation_data.flow_from_directory(
+    #     data_path,
+    #     target_size=(height, width),
+    #     batch_size=batch_size,
+    #     class_mode='categorical',
+    #     subset='validation',
+    #     seed=0)
+    train_generator = train_data.flow(x, y)
+    validation_generator = validation_data.flow(x, y)
+
+    return train_generator, validation_generator, img_list, y
 
 
 def cnn_model(input_shape):
@@ -82,15 +98,12 @@ def cnn_model(input_shape):
     cnn = Conv2D(32, kernel_size=(3, 3))(inputs)
     cnn = Activation('relu')(cnn)
     cnn = MaxPool2D()(cnn)
-    cnn = Conv2D(64, kernel_size=(5, 5))(cnn)
+    cnn = Conv2D(128, kernel_size=(5, 5))(cnn)
     cnn = Dropout(rate=0.1)(cnn)
     cnn = Activation('relu')(cnn)
     cnn = MaxPool2D()(cnn)
-    cnn = Conv2D(128, kernel_size=(7, 7))(cnn)
-    cnn = Activation('relu')(cnn)
-    cnn = MaxPool2D()(cnn)
     cnn = Conv2D(64, kernel_size=(5, 5))(cnn)
-    cnn = Dropout(rate=0.1)(cnn)
+    cnn = Dropout(0.1)(cnn)
     cnn = Activation('relu')(cnn)
     cnn = MaxPool2D()(cnn)
     cnn = Conv2D(32, kernel_size=(3, 3))(cnn)
@@ -101,18 +114,20 @@ def cnn_model(input_shape):
     # Dense 全连接层  实现以下操作：output = activation(dot(input, kernel) + bias)
     # 其中 activation 是按逐个元素计算的激活函数，kernel 是由网络层创建的权值矩阵，
     # 以及 bias 是其创建的偏置向量 (只在 use_bias 为 True 时才有用)。
-    cnn = Dense(32, activation="relu")(cnn)
+    cnn = Dense(64, activation="relu")(cnn)
+    cnn = Dense(64, activation="relu")(cnn)
     # 批量标准化层: 在每一个批次的数据中标准化前一层的激活项， 即应用一个维持激活项平均值接近 0，标准差接近 1 的转换。
     # axis: 整数，需要标准化的轴 （通常是特征轴）。默认值是 -1
-    cnn = BatchNormalization(axis=-1)(cnn)
+    # cnn = BatchNormalization(axis=-1)(cnn)
     # 将激活函数,输出尺寸与输入尺寸一样，激活函数可以是'softmax'、'sigmoid'等
-    cnn = Activation('sigmoid')(cnn)
+    # cnn = Activation('sigmoid')(cnn)
     # Dropout 包括在训练中每次更新时，将输入单元的按比率随机设置为 0, 这有助于防止过拟合。
     # rate: 在 0 和 1 之间浮动。需要丢弃的输入比例。
     cnn = Dropout(0.1)(cnn)
-    cnn = Dense(16, activation="relu")(cnn)
-    cnn = BatchNormalization(axis=-1)(cnn)
-    cnn = Dropout(0.25)(cnn)
+    cnn = Dense(32, activation="relu")(cnn)
+    cnn = Dense(32, activation="relu")(cnn)
+    # cnn = BatchNormalization(axis=-1)(cnn)
+    cnn = Dropout(0.1)(cnn)
     cnn = Dense(6, activation="sigmoid")(cnn)
 
     outputs = cnn
@@ -147,7 +162,7 @@ def train(model, train_generator, validation_generator, train_n, val_n, epoch_n,
     :return:
     """
     # 可视化，TensorBoard 是由 Tensorflow 提供的一个可视化工具。
-    tensorboard = TensorBoard(log_dir)
+    # tensorboard = TensorBoard(log_dir)
 
     # 训练模型, fit_generator函数:https://keras.io/models/model/#fit_generator
     # 利用Python的生成器，逐个生成数据的batch并进行训练。
@@ -163,7 +178,8 @@ def train(model, train_generator, validation_generator, train_n, val_n, epoch_n,
         validation_data=validation_generator,
         # 在验证集上,一个epoch包含的步数,通常应该等于你的数据集的样本数量除以批量大小。
         validation_steps=val_n // batch_size,
-        callbacks=[tensorboard])
+        # callbacks=[tensorboard]
+    )
     # 模型保存
     model.save(model_save_path)
 
@@ -216,18 +232,17 @@ def main():
     """
 
     # 获取数据名称列表
-    height, width = 384, 512
+    height, width = 512, 384
     batch_size = 128
     epoch_n = 100
-    validation_split = 0.1
+    validation_split = 0.05
     # data_path = "./datasets/la1ji1fe1nle4ishu4ju4ji22-momodel/dataset-resized"
     data_path = "./dataset-resized"
-    model_save_path = "./results/cnn.h5"  # 保存模型路径和名称
+    model_save_path = "./results/cnn2.h5"  # 保存模型路径和名称
     log_dir = "./results/logs"
-    img_list = glob.glob(os.path.join(data_path, '*/*.jpg'))
 
     # 获取数据
-    train_data, test_data = processing_data(data_path, height, width, batch_size, validation_split)
+    train_data, test_data, img_list, labels = processing_data(data_path, height, width, batch_size, validation_split)
 
     # 创建、训练和保存模型
     print((height, width))
