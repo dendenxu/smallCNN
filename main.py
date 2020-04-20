@@ -195,11 +195,11 @@ def train(model, train_generator, validation_generator, train_n, val_n, epoch_n,
         # epochs: 整数，数据的迭代总轮数。
         epochs=epoch_n,
         # 一个epoch包含的步数,通常应该等于你的数据集的样本数量除以批量大小。
-        # steps_per_epoch=train_n // batch_size,
+        steps_per_epoch=train_n // batch_size,
         # 验证集
         validation_data=validation_generator,
         # 在验证集上,一个epoch包含的步数,通常应该等于你的数据集的样本数量除以批量大小。
-        # validation_steps=val_n // batch_size,
+        validation_steps=val_n // batch_size,
         # callbacks=[tensorboard]
     )
     # 模型保存
