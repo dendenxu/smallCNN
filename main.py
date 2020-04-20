@@ -11,6 +11,7 @@ from keras.layers.normalization import BatchNormalization
 from keras.models import Model
 from keras.preprocessing.image import ImageDataGenerator
 from keras.utils import to_categorical
+from keras.optimizers import Adam
 
 
 def processing_data(data_path, height, width, batch_size=128, validation_split=0.1):
@@ -50,7 +51,7 @@ def processing_data(data_path, height, width, batch_size=128, validation_split=0
 
     img_list = img_list = glob.glob(os.path.join(data_path, '*/*.jpg'))
     x = np.array(
-        [np.array([cv2.resize(cv2.imread(img_path), (height, width)), re.split("[\\\\|/]", img_path)[-2]]) for img_path in
+        [np.array([cv2.resize(cv2.imread(img_path), (width, height)), re.split("[\\\\|/]", img_path)[-2]]) for img_path in
          img_list])
     labels = set(x[:, 1])
     labels = list(labels)
@@ -84,7 +85,7 @@ def processing_data(data_path, height, width, batch_size=128, validation_split=0
     return train_generator, validation_generator, img_list, y
 
 
-def cnn_model(input_shape):
+def cnn_model(input_shape, learning_rate=1e-4):
     """
     该函数实现 Keras 创建深度学习模型的过程
     :param input_shape: 模型数据形状大小，比如:input_shape=(384, 512, 3)
@@ -95,18 +96,39 @@ def cnn_model(input_shape):
     # shape: 一个尺寸元组（整数），不包含批量大小。 例如，shape=(32,) 表明期望的输入是按批次的 32 维向量。
     print(input_shape)
     inputs = Input(shape=input_shape)
-    cnn = Conv2D(32, kernel_size=(3, 3))(inputs)
+    cnn = Conv2D(32, kernel_size=(3, 3), padding="same")(inputs)
+    cnn = BatchNormalization()(cnn)
     cnn = Activation('relu')(cnn)
     cnn = MaxPool2D()(cnn)
-    cnn = Conv2D(128, kernel_size=(5, 5))(cnn)
+    cnn = Conv2D(32, kernel_size=(5, 5), padding="same")(cnn)
+    cnn = BatchNormalization()(cnn)
+    cnn = Activation('relu')(cnn)
+    cnn = MaxPool2D()(cnn)
+    cnn = Conv2D(32, kernel_size=(5, 5), padding="same")(cnn)
+    cnn = BatchNormalization()(cnn)
+    cnn = Activation('relu')(cnn)
+    cnn = MaxPool2D()(cnn)
+    cnn = Conv2D(64, kernel_size=(5, 5), padding="same")(cnn)
+    cnn = BatchNormalization()(cnn)
+    cnn = Activation('relu')(cnn)
+    cnn = Conv2D(64, kernel_size=(5, 5), padding="same")(cnn)
+    cnn = BatchNormalization()(cnn)
+    cnn = Activation('relu')(cnn)
+    cnn = Conv2D(64, kernel_size=(5, 5), padding="same")(cnn)
+    cnn = BatchNormalization()(cnn)
+    cnn = Activation('relu')(cnn)
     cnn = Dropout(rate=0.1)(cnn)
-    cnn = Activation('relu')(cnn)
     cnn = MaxPool2D()(cnn)
-    cnn = Conv2D(64, kernel_size=(5, 5))(cnn)
-    cnn = Dropout(0.1)(cnn)
+    cnn = Conv2D(64, kernel_size=(5, 5), padding="same")(cnn)
+    cnn = BatchNormalization()(cnn)
     cnn = Activation('relu')(cnn)
+    cnn = Dropout(0.1)(cnn)
     cnn = MaxPool2D()(cnn)
     cnn = Conv2D(32, kernel_size=(3, 3))(cnn)
+    cnn = Conv2D(32, kernel_size=(3, 3))(cnn)
+    cnn = Conv2D(64, kernel_size=(3, 3))(cnn)
+    cnn = Conv2D(128, kernel_size=(3, 3))(cnn)
+    cnn = BatchNormalization()(cnn)
     cnn = Activation('relu')(cnn)
     cnn = MaxPool2D()(cnn)
     cnn = Flatten()(cnn)
@@ -123,11 +145,11 @@ def cnn_model(input_shape):
     # cnn = Activation('sigmoid')(cnn)
     # Dropout 包括在训练中每次更新时，将输入单元的按比率随机设置为 0, 这有助于防止过拟合。
     # rate: 在 0 和 1 之间浮动。需要丢弃的输入比例。
-    cnn = Dropout(0.1)(cnn)
+    cnn = Dense(32, activation="relu")(cnn)
+    cnn = Dense(32, activation="relu")(cnn)
     cnn = Dense(32, activation="relu")(cnn)
     cnn = Dense(32, activation="relu")(cnn)
     # cnn = BatchNormalization(axis=-1)(cnn)
-    cnn = Dropout(0.1)(cnn)
     cnn = Dense(6, activation="sigmoid")(cnn)
 
     outputs = cnn
@@ -138,7 +160,7 @@ def cnn_model(input_shape):
     # 编译模型, 采用 compile 函数: https://keras.io/models/model/#compile
     model.compile(
         # 是优化器, 主要有Adam、sgd、rmsprop等方式。
-        optimizer='Adam',
+        optimizer=Adam(lr=learning_rate),
         # 损失函数,多分类采用 categorical_crossentropy
         loss='categorical_crossentropy',
         # 是除了损失函数值之外的特定指标, 分类问题一般都是准确率
@@ -232,13 +254,14 @@ def main():
     """
 
     # 获取数据名称列表
-    height, width = 512, 384
-    batch_size = 128
+    height, width = 384, 512
+    batch_size = 32
     epoch_n = 100
     validation_split = 0.05
+    learning_rate = 1e-4
     # data_path = "./datasets/la1ji1fe1nle4ishu4ju4ji22-momodel/dataset-resized"
     data_path = "./dataset-resized"
-    model_save_path = "./results/cnn2.h5"  # 保存模型路径和名称
+    model_save_path = "./results/cnn3.h5"  # 保存模型路径和名称
     log_dir = "./results/logs"
 
     # 获取数据
@@ -246,7 +269,7 @@ def main():
 
     # 创建、训练和保存模型
     print((height, width))
-    model = cnn_model((height, width, 3))
+    model = cnn_model((height, width, 3), learning_rate)
     model.summary()
     history, model = train(model, train_data, test_data, len(img_list) // (1 - validation_split),
                            len(img_list) // validation_split, epoch_n, model_save_path, log_dir, batch_size)
@@ -254,6 +277,6 @@ def main():
     # 评估模型
     # evaluate(history, save_model_path)
 
-
-if __name__ == '__main__':
-    main()
+#
+# if __name__ == '__main__':
+#     main()
