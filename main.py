@@ -29,13 +29,13 @@ def processing_data(data_path, height, width, batch_size=128, validation_split=0
         # 对图片的每个像素值均乘上这个放缩因子，把像素值放缩到0和1之间有利于模型的收敛
         rescale=1. / 255,
         # 浮点数，剪切强度（逆时针方向的剪切变换角度）
-        shear_range=0.1,
+        shear_range=0.2,
         # 随机缩放的幅度，若为浮点数，则相当于[lower,upper] = [1 - zoom_range, 1+zoom_range]
-        zoom_range=0.1,
+        zoom_range=0.2,
         # 浮点数，图片宽度的某个比例，数据提升时图片水平偏移的幅度
-        width_shift_range=0.1,
+        width_shift_range=0.2,
         # 浮点数，图片高度的某个比例，数据提升时图片竖直偏移的幅度
-        height_shift_range=0.1,
+        height_shift_range=0.2,
         # 布尔值，进行随机水平翻转
         horizontal_flip=True,
         # 布尔值，进行随机竖直翻转
@@ -51,7 +51,8 @@ def processing_data(data_path, height, width, batch_size=128, validation_split=0
 
     img_list = img_list = glob.glob(os.path.join(data_path, '*/*.jpg'))
     x = np.array(
-        [np.array([cv2.resize(cv2.imread(img_path), (width, height)), re.split("[\\\\|/]", img_path)[-2]]) for img_path in
+        [np.array([cv2.resize(cv2.imread(img_path), (width, height)), re.split("[\\\\|/]", img_path)[-2]]) for img_path
+         in
          img_list])
     labels = set(x[:, 1])
     labels = list(labels)
@@ -59,26 +60,6 @@ def processing_data(data_path, height, width, batch_size=128, validation_split=0
     y = to_categorical([dic[lis] for lis in x[:, 1]])
     x = np.stack(x[:, 0])
 
-    # train_generator = train_data.flow_from_directory(
-    #     # 提供的路径下面需要有子目录
-    #     data_path,
-    #     # 整数元组 (height, width)，默认：(256, 256)。 所有的图像将被调整到的尺寸。
-    #     target_size=(height, width),
-    #     # 一批数据的大小
-    #     batch_size=batch_size,
-    #     # "categorical", "binary", "sparse", "input" 或 None 之一。
-    #     # 默认："categorical",返回one-hot 编码标签。
-    #     class_mode='categorical',
-    #     # 数据子集 ("training" 或 "validation")
-    #     subset='training',
-    #     seed=0)
-    # validation_generator = validation_data.flow_from_directory(
-    #     data_path,
-    #     target_size=(height, width),
-    #     batch_size=batch_size,
-    #     class_mode='categorical',
-    #     subset='validation',
-    #     seed=0)
     train_generator = train_data.flow(x, y)
     validation_generator = validation_data.flow(x, y)
 
@@ -136,7 +117,9 @@ def cnn_model(input_shape, learning_rate=1e-4):
     # Dense 全连接层  实现以下操作：output = activation(dot(input, kernel) + bias)
     # 其中 activation 是按逐个元素计算的激活函数，kernel 是由网络层创建的权值矩阵，
     # 以及 bias 是其创建的偏置向量 (只在 use_bias 为 True 时才有用)。
+    cnn = BatchNormalization()(cnn)
     cnn = Dense(64, activation="relu")(cnn)
+    # cnn = Dropout(0.2)(cnn)
     cnn = Dense(64, activation="relu")(cnn)
     # 批量标准化层: 在每一个批次的数据中标准化前一层的激活项， 即应用一个维持激活项平均值接近 0，标准差接近 1 的转换。
     # axis: 整数，需要标准化的轴 （通常是特征轴）。默认值是 -1
@@ -147,9 +130,10 @@ def cnn_model(input_shape, learning_rate=1e-4):
     # rate: 在 0 和 1 之间浮动。需要丢弃的输入比例。
     cnn = Dense(32, activation="relu")(cnn)
     cnn = Dense(32, activation="relu")(cnn)
+    # cnn = Dropout(0.2)(cnn)
     cnn = Dense(32, activation="relu")(cnn)
     cnn = Dense(32, activation="relu")(cnn)
-    # cnn = BatchNormalization(axis=-1)(cnn)
+    cnn = BatchNormalization()(cnn)
     cnn = Dense(6, activation="sigmoid")(cnn)
 
     outputs = cnn
@@ -184,7 +168,7 @@ def train(model, train_generator, validation_generator, train_n, val_n, epoch_n,
     :return:
     """
     # 可视化，TensorBoard 是由 Tensorflow 提供的一个可视化工具。
-    # tensorboard = TensorBoard(log_dir)
+    tensorboard = TensorBoard(log_dir)
 
     # 训练模型, fit_generator函数:https://keras.io/models/model/#fit_generator
     # 利用Python的生成器，逐个生成数据的batch并进行训练。
@@ -200,7 +184,7 @@ def train(model, train_generator, validation_generator, train_n, val_n, epoch_n,
         validation_data=validation_generator,
         # 在验证集上,一个epoch包含的步数,通常应该等于你的数据集的样本数量除以批量大小。
         validation_steps=val_n // batch_size,
-        # callbacks=[tensorboard]
+        callbacks=[tensorboard]
     )
     # 模型保存
     model.save(model_save_path)
@@ -252,16 +236,17 @@ def main():
     如果你对自己训练出来的模型非常满意,则可以提交作业!
     :return:
     """
-
+    # This one is without the step_per_epoch
     # 获取数据名称列表
     height, width = 384, 512
     batch_size = 32
-    epoch_n = 100
+    epoch_n = 5
     validation_split = 0.05
     learning_rate = 1e-4
     # data_path = "./datasets/la1ji1fe1nle4ishu4ju4ji22-momodel/dataset-resized"
     data_path = "./dataset-resized"
-    model_save_path = "./results/cnn3.h5"  # 保存模型路径和名称
+    model_save_path = "./results/cnn5.h5"  # 保存模型路径和名称
+    check_point_dir = "./results/chkpt/"
     log_dir = "./results/logs"
 
     # 获取数据
@@ -271,12 +256,15 @@ def main():
     print((height, width))
     model = cnn_model((height, width, 3), learning_rate)
     model.summary()
-    history, model = train(model, train_data, test_data, len(img_list) // (1 - validation_split),
-                           len(img_list) // validation_split, epoch_n, model_save_path, log_dir, batch_size)
-    plot_training_history(history)
+    for i in range(20):
+        history, model = train(model, train_data, test_data, len(img_list),
+                               len(img_list), epoch_n, model_save_path, log_dir, batch_size)
+        plot_training_history(history)
+        model.save(check_point_dir + "cnn" + str(i) + ".h5")
+        print("Check point model {} saved to {}".format("cnn" + str(i) + ".h5", check_point_dir))
     # 评估模型
     # evaluate(history, save_model_path)
 
-#
-# if __name__ == '__main__':
-#     main()
+
+if __name__ == '__main__':
+    main()
