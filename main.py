@@ -51,8 +51,7 @@ def processing_data(data_path, height, width, batch_size=128, validation_split=0
 
     img_list = img_list = glob.glob(os.path.join(data_path, '*/*.jpg'))
     x = np.array(
-        [np.array([cv2.resize(cv2.imread(img_path), (width, height)), re.split("[\\\\|/]", img_path)[-2]]) for img_path
-         in
+        [np.array([cv2.resize(cv2.imread(img_path), (width, height)), re.split("[\\\\|/]", img_path)[-2]]) for img_path in
          img_list])
     labels = set(x[:, 1])
     labels = list(labels)
@@ -119,7 +118,7 @@ def cnn_model(input_shape, learning_rate=1e-4):
     # 以及 bias 是其创建的偏置向量 (只在 use_bias 为 True 时才有用)。
     cnn = BatchNormalization()(cnn)
     cnn = Dense(64, activation="relu")(cnn)
-    # cnn = Dropout(0.2)(cnn)
+    cnn = Dropout(0.2)(cnn)
     cnn = Dense(64, activation="relu")(cnn)
     # 批量标准化层: 在每一个批次的数据中标准化前一层的激活项， 即应用一个维持激活项平均值接近 0，标准差接近 1 的转换。
     # axis: 整数，需要标准化的轴 （通常是特征轴）。默认值是 -1
@@ -130,7 +129,7 @@ def cnn_model(input_shape, learning_rate=1e-4):
     # rate: 在 0 和 1 之间浮动。需要丢弃的输入比例。
     cnn = Dense(32, activation="relu")(cnn)
     cnn = Dense(32, activation="relu")(cnn)
-    # cnn = Dropout(0.2)(cnn)
+    cnn = Dropout(0.2)(cnn)
     cnn = Dense(32, activation="relu")(cnn)
     cnn = Dense(32, activation="relu")(cnn)
     cnn = BatchNormalization()(cnn)
@@ -168,7 +167,7 @@ def train(model, train_generator, validation_generator, train_n, val_n, epoch_n,
     :return:
     """
     # 可视化，TensorBoard 是由 Tensorflow 提供的一个可视化工具。
-    tensorboard = TensorBoard(log_dir)
+    # tensorboard = TensorBoard(log_dir)
 
     # 训练模型, fit_generator函数:https://keras.io/models/model/#fit_generator
     # 利用Python的生成器，逐个生成数据的batch并进行训练。
@@ -184,7 +183,7 @@ def train(model, train_generator, validation_generator, train_n, val_n, epoch_n,
         validation_data=validation_generator,
         # 在验证集上,一个epoch包含的步数,通常应该等于你的数据集的样本数量除以批量大小。
         validation_steps=val_n // batch_size,
-        callbacks=[tensorboard]
+        # callbacks=[tensorboard]
     )
     # 模型保存
     model.save(model_save_path)
@@ -245,7 +244,7 @@ def main():
     learning_rate = 1e-4
     # data_path = "./datasets/la1ji1fe1nle4ishu4ju4ji22-momodel/dataset-resized"
     data_path = "./dataset-resized"
-    model_save_path = "./results/cnn5.h5"  # 保存模型路径和名称
+    model_save_path = "./results/cnn4.h5"  # 保存模型路径和名称
     check_point_dir = "./results/chkpt/"
     log_dir = "./results/logs"
 
