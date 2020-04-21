@@ -189,7 +189,7 @@ def train(model, train_generator, validation_generator, train_n, val_n, epoch_n,
     # 可视化，TensorBoard 是由 Tensorflow 提供的一个可视化工具。
     tensorboard = TensorBoard(log_dir)
     best_path = "results/best.h5"
-    if keras.__version__.split(".")[1] >= 3:
+    if int(keras.__version__.split(".")[1]) >= 3:
         model_chkpt = ModelCheckpoint(best_path, 'val_accuracy', 1, True, mode='max')
     else:
         model_chkpt = ModelCheckpoint(best_path, 'val_acc', 1, True, mode='max')
@@ -236,7 +236,7 @@ def plot_training_history(res):
     plt.show()
 
     # 绘制模型训练过程中的的准确率和平均准确率
-    if keras.__version__.split(".")[1] >= 3:
+    if int(keras.__version__.split(".")[1]) >= 3:
         # 绘制模型训练过程中的准确率曲线，标签是 acc
         plt.plot(res.history['accuracy'], label='accuracy')
         # 绘制模型训练过程中的平均准确率曲线，标签是 val_acc
@@ -269,7 +269,7 @@ def main():
     # 获取数据名称列表
     height, width = 384, 512
     batch_size = 32
-    epoch_n = 5
+    epoch_n = 100
     validation_split = 0.05
     learning_rate = 1e-4
     data_path = "./dataset-resized"
@@ -288,12 +288,9 @@ def main():
     print((height, width))
     model = cnn_model((height, width, 3), learning_rate)
     model.summary()
-    for i in range(20):
-        history, model = train(model, train_data, test_data, len(img_list),
-                               len(img_list), epoch_n, model_save_path, log_dir, batch_size)
-        plot_training_history(history)
-        model.save(check_point_dir + "cnn" + str(i) + ".h5")
-        print("Check point model {} saved to {}".format("cnn" + str(i) + ".h5", check_point_dir))
+    history, model = train(model, train_data, test_data, len(img_list),
+                           len(img_list), epoch_n, model_save_path, log_dir, batch_size)
+    plot_training_history(history)
     # 评估模型
     # evaluate(history, save_model_path)
 
