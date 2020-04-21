@@ -5,7 +5,8 @@ import re
 import numpy as np
 
 import matplotlib.pyplot as plt
-from keras.callbacks import TensorBoard
+import keras
+from keras.callbacks import TensorBoard, ModelCheckpoint
 from keras.layers import Input, Dense, Flatten, Dropout, Activation, Conv2D, MaxPool2D
 from keras.layers.normalization import BatchNormalization
 from keras.models import Model
@@ -50,19 +51,41 @@ def processing_data(data_path, height, width, batch_size=128, validation_split=0
         validation_split=validation_split)
 
     img_list = img_list = glob.glob(os.path.join(data_path, '*/*.jpg'))
-    x = np.array(
-        [np.array([cv2.resize(cv2.imread(img_path), (width, height)), re.split("[\\\\|/]", img_path)[-2]]) for img_path in
-         img_list])
-    labels = set(x[:, 1])
-    labels = list(labels)
-    dic = {value: key for key, value in enumerate(labels)}
-    y = to_categorical([dic[lis] for lis in x[:, 1]])
-    x = np.stack(x[:, 0])
+    # x = np.array(
+    #     [np.array([cv2.resize(cv2.imread(img_path), (width, height)), re.split("[\\\\|/]", img_path)[-2]]) for img_path
+    #      in
+    #      img_list])
+    # labels = set(x[:, 1])
+    # labels = list(labels)
+    # dic = {value: key for key, value in enumerate(labels)}
+    # y = to_categorical([dic[lis] for lis in x[:, 1]])
+    # x = np.stack(x[:, 0])
+    #
+    # train_generator = train_data.flow(x, y)
+    # validation_generator = validation_data.flow(x, y)
 
-    train_generator = train_data.flow(x, y)
-    validation_generator = validation_data.flow(x, y)
-
-    return train_generator, validation_generator, img_list, y
+    train_generator = train_data.flow_from_directory(
+        # 提供的路径下面需要有子目录
+        data_path,
+        # 整数元组 (height, width)，默认：(256, 256)。 所有的图像将被调整到的尺寸。
+        target_size=(height, width),
+        # 一批数据的大小
+        batch_size=batch_size,
+        # "categorical", "binary", "sparse", "input" 或 None 之一。
+        # 默认："categorical",返回one-hot 编码标签。
+        class_mode='categorical',
+        # 数据子集 ("training" 或 "validation")
+        subset='training',
+        seed=0)
+    validation_generator = validation_data.flow_from_directory(
+        data_path,
+        target_size=(height, width),
+        batch_size=batch_size,
+        class_mode='categorical',
+        subset='validation',
+        seed=0)
+    labels = train_generator.class_indices
+    return train_generator, validation_generator, img_list, labels
 
 
 def cnn_model(input_shape, learning_rate=1e-4):
@@ -76,30 +99,30 @@ def cnn_model(input_shape, learning_rate=1e-4):
     # shape: 一个尺寸元组（整数），不包含批量大小。 例如，shape=(32,) 表明期望的输入是按批次的 32 维向量。
     print(input_shape)
     inputs = Input(shape=input_shape)
-    cnn = Conv2D(32, kernel_size=(3, 3), padding="same")(inputs)
+    cnn = Conv2D(32, kernel_size=(3, 3))(inputs)
     cnn = BatchNormalization()(cnn)
     cnn = Activation('relu')(cnn)
     cnn = MaxPool2D()(cnn)
-    cnn = Conv2D(32, kernel_size=(5, 5), padding="same")(cnn)
+    cnn = Conv2D(32, kernel_size=(5, 5))(cnn)
     cnn = BatchNormalization()(cnn)
     cnn = Activation('relu')(cnn)
     cnn = MaxPool2D()(cnn)
-    cnn = Conv2D(32, kernel_size=(5, 5), padding="same")(cnn)
+    cnn = Conv2D(32, kernel_size=(5, 5))(cnn)
     cnn = BatchNormalization()(cnn)
     cnn = Activation('relu')(cnn)
     cnn = MaxPool2D()(cnn)
-    cnn = Conv2D(64, kernel_size=(5, 5), padding="same")(cnn)
+    cnn = Conv2D(64, kernel_size=(5, 5))(cnn)
     cnn = BatchNormalization()(cnn)
     cnn = Activation('relu')(cnn)
-    cnn = Conv2D(64, kernel_size=(5, 5), padding="same")(cnn)
+    cnn = Conv2D(64, kernel_size=(5, 5))(cnn)
     cnn = BatchNormalization()(cnn)
     cnn = Activation('relu')(cnn)
-    cnn = Conv2D(64, kernel_size=(5, 5), padding="same")(cnn)
+    cnn = Conv2D(64, kernel_size=(5, 5))(cnn)
     cnn = BatchNormalization()(cnn)
     cnn = Activation('relu')(cnn)
     cnn = Dropout(rate=0.1)(cnn)
     cnn = MaxPool2D()(cnn)
-    cnn = Conv2D(64, kernel_size=(5, 5), padding="same")(cnn)
+    cnn = Conv2D(64, kernel_size=(5, 5))(cnn)
     cnn = BatchNormalization()(cnn)
     cnn = Activation('relu')(cnn)
     cnn = Dropout(0.1)(cnn)
@@ -116,9 +139,7 @@ def cnn_model(input_shape, learning_rate=1e-4):
     # Dense 全连接层  实现以下操作：output = activation(dot(input, kernel) + bias)
     # 其中 activation 是按逐个元素计算的激活函数，kernel 是由网络层创建的权值矩阵，
     # 以及 bias 是其创建的偏置向量 (只在 use_bias 为 True 时才有用)。
-    cnn = BatchNormalization()(cnn)
     cnn = Dense(64, activation="relu")(cnn)
-    cnn = Dropout(0.2)(cnn)
     cnn = Dense(64, activation="relu")(cnn)
     # 批量标准化层: 在每一个批次的数据中标准化前一层的激活项， 即应用一个维持激活项平均值接近 0，标准差接近 1 的转换。
     # axis: 整数，需要标准化的轴 （通常是特征轴）。默认值是 -1
@@ -129,10 +150,9 @@ def cnn_model(input_shape, learning_rate=1e-4):
     # rate: 在 0 和 1 之间浮动。需要丢弃的输入比例。
     cnn = Dense(32, activation="relu")(cnn)
     cnn = Dense(32, activation="relu")(cnn)
-    cnn = Dropout(0.2)(cnn)
     cnn = Dense(32, activation="relu")(cnn)
     cnn = Dense(32, activation="relu")(cnn)
-    cnn = BatchNormalization()(cnn)
+    # cnn = BatchNormalization(axis=-1)(cnn)
     cnn = Dense(6, activation="sigmoid")(cnn)
 
     outputs = cnn
@@ -167,8 +187,13 @@ def train(model, train_generator, validation_generator, train_n, val_n, epoch_n,
     :return:
     """
     # 可视化，TensorBoard 是由 Tensorflow 提供的一个可视化工具。
-    # tensorboard = TensorBoard(log_dir)
-
+    tensorboard = TensorBoard(log_dir)
+    best_path = "results/best.h5"
+    if keras.__version__.split(".")[1] >= 3:
+        model_chkpt = ModelCheckpoint(best_path, 'val_accuracy', 1, True, mode='max')
+    else:
+        model_chkpt = ModelCheckpoint(best_path, 'val_acc', 1, True, mode='max')
+    callbacks = [tensorboard, model_chkpt]
     # 训练模型, fit_generator函数:https://keras.io/models/model/#fit_generator
     # 利用Python的生成器，逐个生成数据的batch并进行训练。
     # callbacks: 实例列表。在训练时调用的一系列回调。详见 https://keras.io/callbacks/。
@@ -183,7 +208,7 @@ def train(model, train_generator, validation_generator, train_n, val_n, epoch_n,
         validation_data=validation_generator,
         # 在验证集上,一个epoch包含的步数,通常应该等于你的数据集的样本数量除以批量大小。
         validation_steps=val_n // batch_size,
-        # callbacks=[tensorboard]
+        callbacks=callbacks
     )
     # 模型保存
     model.save(model_save_path)
@@ -211,11 +236,16 @@ def plot_training_history(res):
     plt.show()
 
     # 绘制模型训练过程中的的准确率和平均准确率
-    # 绘制模型训练过程中的准确率曲线，标签是 acc
-    plt.plot(res.history['acc'], label='accuracy')
-
-    # 绘制模型训练过程中的平均准确率曲线，标签是 val_acc
-    plt.plot(res.history['val_acc'], label='val_accuracy')
+    if keras.__version__.split(".")[1] >= 3:
+        # 绘制模型训练过程中的准确率曲线，标签是 acc
+        plt.plot(res.history['accuracy'], label='accuracy')
+        # 绘制模型训练过程中的平均准确率曲线，标签是 val_acc
+        plt.plot(res.history['val_accuracy'], label='val_accuracy')
+    else:
+        # 绘制模型训练过程中的准确率曲线，标签是 acc
+        plt.plot(res.history['acc'], label='accuracy')
+        # 绘制模型训练过程中的平均准确率曲线，标签是 val_acc
+        plt.plot(res.history['val_acc'], label='val_accuracy')
 
     # 绘制图例,展示出每个数据对应的图像名称，图例的放置位置为默认值。
     plt.legend()
@@ -242,9 +272,12 @@ def main():
     epoch_n = 5
     validation_split = 0.05
     learning_rate = 1e-4
-    # data_path = "./datasets/la1ji1fe1nle4ishu4ju4ji22-momodel/dataset-resized"
     data_path = "./dataset-resized"
-    model_save_path = "./results/cnn4.h5"  # 保存模型路径和名称
+    try:
+        os.listdir(data_path)
+    except:
+        data_path = "./datasets/la1ji1fe1nle4ishu4ju4ji22-momodel/dataset-resized"
+    model_save_path = "./results/cnn5.h5"  # 保存模型路径和名称
     check_point_dir = "./results/chkpt/"
     log_dir = "./results/logs"
 
