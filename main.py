@@ -3,16 +3,30 @@ import os
 import cv2
 import re
 import numpy as np
-
 import matplotlib.pyplot as plt
 import keras
+import tensorflow as tf
 from keras.callbacks import TensorBoard, ModelCheckpoint
-from keras.layers import Input, Dense, Flatten, Dropout, Activation, Conv2D, MaxPool2D
+from keras.layers import Input, Dense, Flatten, Dropout, Activation, Conv2D, MaxPool2D, AveragePooling2D
 from keras.layers.normalization import BatchNormalization
 from keras.models import Model
 from keras.preprocessing.image import ImageDataGenerator
 from keras.utils import to_categorical
 from keras.optimizers import Adam
+from keras.regularizers import l2
+
+try:
+    from obs import ObsClient
+    AK='IT0BUVSNXM64EU0XOGQ8'
+    SK='j8dkml5YbEsiMZuqfs7CapoZQM5NxnumlfogeCpc'
+    obs_endpoint='obs.cn-north-4.myhuaweicloud.com'
+    obs_client = ObsClient(AK, SK, is_secure=True,server=obs_endpoint)
+
+    bucket_name = "dataset.kaggle.garbage"
+    source_abs_path = "results"
+    target_abs_path = "garbage/" + source_abs_path
+except:
+    pass
 
 
 def processing_data(data_path, height, width, batch_size=128, validation_split=0.1):
@@ -30,13 +44,13 @@ def processing_data(data_path, height, width, batch_size=128, validation_split=0
         # 对图片的每个像素值均乘上这个放缩因子，把像素值放缩到0和1之间有利于模型的收敛
         rescale=1. / 255,
         # 浮点数，剪切强度（逆时针方向的剪切变换角度）
-        shear_range=0.2,
+        shear_range=0.1,
         # 随机缩放的幅度，若为浮点数，则相当于[lower,upper] = [1 - zoom_range, 1+zoom_range]
-        zoom_range=0.2,
+        zoom_range=0.1,
         # 浮点数，图片宽度的某个比例，数据提升时图片水平偏移的幅度
-        width_shift_range=0.2,
+        width_shift_range=0.1,
         # 浮点数，图片高度的某个比例，数据提升时图片竖直偏移的幅度
-        height_shift_range=0.2,
+        height_shift_range=0.1,
         # 布尔值，进行随机水平翻转
         horizontal_flip=True,
         # 布尔值，进行随机竖直翻转
@@ -51,44 +65,184 @@ def processing_data(data_path, height, width, batch_size=128, validation_split=0
         validation_split=validation_split)
 
     img_list = img_list = glob.glob(os.path.join(data_path, '*/*.jpg'))
-    # x = np.array(
-    #     [np.array([cv2.resize(cv2.imread(img_path), (width, height)), re.split("[\\\\|/]", img_path)[-2]]) for img_path
-    #      in
-    #      img_list])
-    # labels = set(x[:, 1])
-    # labels = list(labels)
-    # dic = {value: key for key, value in enumerate(labels)}
-    # y = to_categorical([dic[lis] for lis in x[:, 1]])
-    # x = np.stack(x[:, 0])
-    #
-    # train_generator = train_data.flow(x, y)
-    # validation_generator = validation_data.flow(x, y)
+    x = np.array(
+        [np.array([cv2.resize(cv2.imread(img_path), (width, height)),
+                   re.split("[\\\\|/]", img_path)[-2]]) for img_path in img_list])
+    labels = set(x[:, 1])
+    labels = list(labels)
+    dic = {value: key for key, value in enumerate(labels)}
+    y = to_categorical([dic[lis] for lis in x[:, 1]])
+    x = np.stack(x[:, 0])
 
-    train_generator = train_data.flow_from_directory(
-        # 提供的路径下面需要有子目录
-        data_path,
-        # 整数元组 (height, width)，默认：(256, 256)。 所有的图像将被调整到的尺寸。
-        target_size=(height, width),
-        # 一批数据的大小
-        batch_size=batch_size,
-        # "categorical", "binary", "sparse", "input" 或 None 之一。
-        # 默认："categorical",返回one-hot 编码标签。
-        class_mode='categorical',
-        # 数据子集 ("training" 或 "validation")
-        subset='training',
-        seed=0)
-    validation_generator = validation_data.flow_from_directory(
-        data_path,
-        target_size=(height, width),
-        batch_size=batch_size,
-        class_mode='categorical',
-        subset='validation',
-        seed=0)
-    labels = train_generator.class_indices
+    train_generator = train_data.flow(x, y)
+    validation_generator = validation_data.flow(x, y)
+
+    # train_generator = train_data.flow_from_directory(
+    #     # 提供的路径下面需要有子目录
+    #     data_path,
+    #     # 整数元组 (height, width)，默认：(256, 256)。 所有的图像将被调整到的尺寸。
+    #     target_size=(height, width),
+    #     # 一批数据的大小
+    #     batch_size=batch_size,
+    #     # "categorical", "binary", "sparse", "input" 或 None 之一。
+    #     # 默认："categorical",返回one-hot 编码标签。
+    #     class_mode='categorical',
+    #     # 数据子集 ("training" 或 "validation")
+    #     subset='training',
+    #     seed=0)
+    # validation_generator = validation_data.flow_from_directory(
+    #     data_path,
+    #     target_size=(height, width),
+    #     batch_size=batch_size,
+    #     class_mode='categorical',
+    #     subset='validation',
+    #     seed=0)
+    # labels = train_generator.class_indices
     return train_generator, validation_generator, img_list, labels
 
 
-def cnn_model(input_shape, learning_rate=1e-4):
+def resnet_layer(inputs,
+                 num_filters=16,
+                 kernel_size=3,
+                 strides=1,
+                 activation='relu',
+                 batch_normalization=True,
+                 conv_first=True):
+    """2D Convolution-Batch Normalization-Activation stack builder
+
+    # Arguments
+        inputs (tensor): input tensor from input image or previous layer
+        num_filters (int): Conv2D number of filters
+        kernel_size (int): Conv2D square kernel dimensions
+        strides (int): Conv2D square stride dimensions
+        activation (string): activation name
+        batch_normalization (bool): whether to include batch normalization
+        conv_first (bool): conv-bn-activation (True) or
+            bn-activation-conv (False)
+
+    # Returns
+        x (tensor): tensor as input to the next layer
+    """
+    conv = Conv2D(num_filters,
+                  kernel_size=kernel_size,
+                  strides=strides,
+                  padding='same',
+                  kernel_initializer='he_normal',
+                  kernel_regularizer=l2(1e-4))
+
+    x = inputs
+    if conv_first:
+        x = conv(x)
+        if batch_normalization:
+            x = BatchNormalization()(x)
+        if activation is not None:
+            x = Activation(activation)(x)
+    else:
+        if batch_normalization:
+            x = BatchNormalization()(x)
+        if activation is not None:
+            x = Activation(activation)(x)
+        x = conv(x)
+    return x
+
+
+def resnet_v2(input_shape, depth, num_classes=10):
+    """ResNet Version 2 Model builder [b]
+
+    Stacks of (1 x 1)-(3 x 3)-(1 x 1) BN-ReLU-Conv2D or also known as
+    bottleneck layer
+    First shortcut connection per layer is 1 x 1 Conv2D.
+    Second and onwards shortcut connection is identity.
+    At the beginning of each stage, the feature map size is halved (downsampled)
+    by a convolutional layer with strides=2, while the number of filter maps is
+    doubled. Within each stage, the layers have the same number filters and the
+    same filter map sizes.
+    Features maps sizes:
+    conv1  : 32x32,  16
+    stage 0: 32x32,  64
+    stage 1: 16x16, 128
+    stage 2:  8x8,  256
+
+    # Arguments
+        input_shape (tensor): shape of input image tensor
+        depth (int): number of core convolutional layers
+        num_classes (int): number of classes (CIFAR10 has 10)
+
+    # Returns
+        model (Model): Keras model instance
+    """
+    if (depth - 2) % 9 != 0:
+        raise ValueError('depth should be 9n+2 (eg 56 or 110 in [b])')
+    # Start model definition.
+    num_filters_in = 16
+    num_res_blocks = int((depth - 2) / 9)
+
+    inputs = Input(shape=input_shape)
+    # v2 performs Conv2D with BN-ReLU on input before splitting into 2 paths
+    x = resnet_layer(inputs=inputs,
+                     num_filters=num_filters_in,
+                     conv_first=True)
+
+    # Instantiate the stack of residual units
+    for stage in range(3):
+        for res_block in range(num_res_blocks):
+            activation = 'relu'
+            batch_normalization = True
+            strides = 1
+            if stage == 0:
+                num_filters_out = num_filters_in * 4
+                if res_block == 0:  # first layer and first stage
+                    activation = None
+                    batch_normalization = False
+            else:
+                num_filters_out = num_filters_in * 2
+                if res_block == 0:  # first layer but not first stage
+                    strides = 2  # downsample
+
+            # bottleneck residual unit
+            y = resnet_layer(inputs=x,
+                             num_filters=num_filters_in,
+                             kernel_size=1,
+                             strides=strides,
+                             activation=activation,
+                             batch_normalization=batch_normalization,
+                             conv_first=False)
+            y = resnet_layer(inputs=y,
+                             num_filters=num_filters_in,
+                             conv_first=False)
+            y = resnet_layer(inputs=y,
+                             num_filters=num_filters_out,
+                             kernel_size=1,
+                             conv_first=False)
+            if res_block == 0:
+                # linear projection residual shortcut connection to match
+                # changed dims
+                x = resnet_layer(inputs=x,
+                                 num_filters=num_filters_out,
+                                 kernel_size=1,
+                                 strides=strides,
+                                 activation=None,
+                                 batch_normalization=False)
+            x = keras.layers.add([x, y])
+
+        num_filters_in = num_filters_out
+
+    # Add classifier on top.
+    # v2 has BN-ReLU before Pooling
+    x = BatchNormalization()(x)
+    x = Activation('relu')(x)
+    x = AveragePooling2D(pool_size=8)(x)
+    y = Flatten()(x)
+    outputs = Dense(num_classes,
+                    activation='softmax',
+                    kernel_initializer='he_normal')(y)
+
+    # Instantiate model.
+    model = Model(inputs=inputs, outputs=outputs)
+    return model
+
+
+def cnn_model(input_shape, learning_rate=1e-4, depth=34, class_number=6):
     """
     该函数实现 Keras 创建深度学习模型的过程
     :param input_shape: 模型数据形状大小，比如:input_shape=(384, 512, 3)
@@ -98,68 +252,7 @@ def cnn_model(input_shape, learning_rate=1e-4):
     # Input 用于实例化 Keras 张量。
     # shape: 一个尺寸元组（整数），不包含批量大小。 例如，shape=(32,) 表明期望的输入是按批次的 32 维向量。
     print(input_shape)
-    inputs = Input(shape=input_shape)
-    cnn = Conv2D(32, kernel_size=(3, 3), padding="same")(inputs)
-    cnn = BatchNormalization()(cnn)
-    cnn = Activation('relu')(cnn)
-    cnn = MaxPool2D()(cnn)
-    cnn = Conv2D(32, kernel_size=(5, 5), padding="same")(cnn)
-    cnn = BatchNormalization()(cnn)
-    cnn = Activation('relu')(cnn)
-    cnn = MaxPool2D()(cnn)
-    cnn = Conv2D(32, kernel_size=(5, 5), padding="same")(cnn)
-    cnn = BatchNormalization()(cnn)
-    cnn = Activation('relu')(cnn)
-    cnn = MaxPool2D()(cnn)
-    cnn = Conv2D(64, kernel_size=(5, 5), padding="same")(cnn)
-    cnn = BatchNormalization()(cnn)
-    cnn = Activation('relu')(cnn)
-    cnn = Conv2D(64, kernel_size=(5, 5), padding="same")(cnn)
-    cnn = BatchNormalization()(cnn)
-    cnn = Activation('relu')(cnn)
-    cnn = Conv2D(64, kernel_size=(5, 5), padding="same")(cnn)
-    cnn = BatchNormalization()(cnn)
-    cnn = Activation('relu')(cnn)
-    cnn = Dropout(rate=0.1)(cnn)
-    cnn = MaxPool2D()(cnn)
-    cnn = Conv2D(64, kernel_size=(5, 5), padding="same")(cnn)
-    cnn = BatchNormalization()(cnn)
-    cnn = Activation('relu')(cnn)
-    cnn = Dropout(0.1)(cnn)
-    cnn = MaxPool2D()(cnn)
-    cnn = Conv2D(32, kernel_size=(3, 3))(cnn)
-    cnn = Conv2D(32, kernel_size=(3, 3))(cnn)
-    cnn = Conv2D(64, kernel_size=(3, 3))(cnn)
-    cnn = Conv2D(128, kernel_size=(3, 3))(cnn)
-    cnn = BatchNormalization()(cnn)
-    cnn = Activation('relu')(cnn)
-    cnn = MaxPool2D()(cnn)
-    cnn = Flatten()(cnn)
-
-    # Dense 全连接层  实现以下操作：output = activation(dot(input, kernel) + bias)
-    # 其中 activation 是按逐个元素计算的激活函数，kernel 是由网络层创建的权值矩阵，
-    # 以及 bias 是其创建的偏置向量 (只在 use_bias 为 True 时才有用)。
-    cnn = Dense(64, activation="relu")(cnn)
-    cnn = Dense(64, activation="relu")(cnn)
-    # 批量标准化层: 在每一个批次的数据中标准化前一层的激活项， 即应用一个维持激活项平均值接近 0，标准差接近 1 的转换。
-    # axis: 整数，需要标准化的轴 （通常是特征轴）。默认值是 -1
-    # cnn = BatchNormalization(axis=-1)(cnn)
-    # 将激活函数,输出尺寸与输入尺寸一样，激活函数可以是'softmax'、'sigmoid'等
-    # cnn = Activation('sigmoid')(cnn)
-    # Dropout 包括在训练中每次更新时，将输入单元的按比率随机设置为 0, 这有助于防止过拟合。
-    # rate: 在 0 和 1 之间浮动。需要丢弃的输入比例。
-    cnn = Dense(32, activation="relu")(cnn)
-    cnn = Dense(32, activation="relu")(cnn)
-    cnn = Dense(32, activation="relu")(cnn)
-    cnn = Dense(32, activation="relu")(cnn)
-    # cnn = BatchNormalization(axis=-1)(cnn)
-    cnn = Dense(6, activation="sigmoid")(cnn)
-
-    outputs = cnn
-
-    # 生成一个函数型模型
-    model = Model(inputs=inputs, outputs=outputs)
-
+    model = resnet_v2(input_shape, depth, class_number)
     # 编译模型, 采用 compile 函数: https://keras.io/models/model/#compile
     model.compile(
         # 是优化器, 主要有Adam、sgd、rmsprop等方式。
@@ -254,9 +347,6 @@ def plot_training_history(res):
     plt.show()
 
 
-def evaluate(history, save_model_path):
-    pass
-
 
 def main():
     """
@@ -267,8 +357,10 @@ def main():
     """
     # This one is without the step_per_epoch
     # 获取数据名称列表
-    height, width = 384, 512
+    height, width = 256, 256
     batch_size = 32
+    depth = 29  # depth should be 9n+2 (eg 56 or 110 in [b])
+    class_number = 6
     epoch_n = 100
     validation_split = 0.05
     learning_rate = 1e-4
@@ -277,18 +369,19 @@ def main():
         os.listdir(data_path)
     except:
         data_path = "./datasets/la1ji1fe1nle4ishu4ju4ji22-momodel/dataset-resized"
-    model_save_path = "./results/cnn5.h5"  # 保存模型路径和名称
+    model_save_path = "./results/cnn7.h5"  # 保存模型路径和名称
     check_point_dir = "./results/chkpt/"
     log_dir = "./results/logs"
 
     # 获取数据
-    train_data, test_data, img_list, labels = processing_data(data_path, height, width, batch_size, validation_split)
+    train_generator, test_generator, img_list, labels = processing_data(data_path, height, width, batch_size,
+                                                                        validation_split)
 
     # 创建、训练和保存模型
     print((height, width))
-    model = cnn_model((height, width, 3), learning_rate)
+    model = cnn_model((height, width, 3), learning_rate, depth, class_number)
     model.summary()
-    history, model = train(model, train_data, test_data, len(img_list),
+    history, model = train(model, train_generator, test_generator, len(img_list),
                            len(img_list), epoch_n, model_save_path, log_dir, batch_size)
     plot_training_history(history)
     # 评估模型
