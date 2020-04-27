@@ -43,7 +43,7 @@ def lr_schedule(epoch):
     # Returns
         lr (float32): learning rate
     """
-    lr = 1e-5
+    lr = 1e-3
     if epoch > 180:
         lr *= 0.5e-3
     elif epoch > 160:
@@ -328,7 +328,12 @@ def train(model, train_generator, validation_generator, train_n, val_n, epoch_n,
                                    patience=5,
                                    min_lr=0.5e-6)
 
-    callbacks = [tensorboard, model_chkpt, SyncResultsWithOBS(), lr_scheduler, lr_reducer]
+    callbacks = [tensorboard,
+                 model_chkpt,
+                 SyncResultsWithOBS(),
+                 # lr_scheduler,
+                 # lr_reducer,
+                 ]
     # 训练模型, fit_generator函数:https://keras.io/models/model/#fit_generator
     # 利用Python的生成器，逐个生成数据的batch并进行训练。
     # callbacks: 实例列表。在训练时调用的一系列回调。详见 https://keras.io/callbacks/。
@@ -439,10 +444,10 @@ def main():
         os.listdir(data_path)
     except:
         data_path = "./datasets/la1ji1fe1nle4ishu4ju4ji22-momodel/dataset-resized"
-    model_save_path = "./results/cnn11.h5"  # 保存模型路径和名称
+    model_save_path = "./results/cnn13.h5"  # 保存模型路径和名称
     check_point_dir = "./results/chkpt/"
     log_dir = "./results/logs/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    best_path = "./results/best6.h5"
+    best_path = "./results/best8.h5"
 
     # 获取数据
     train_generator, test_generator, img_list, labels = processing_data(data_path, height, width, batch_size,

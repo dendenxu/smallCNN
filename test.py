@@ -13,7 +13,7 @@ model_path = "results/best2.h5"
 
 # 加载模型，如果采用keras框架训练模型，则 model=load_model(model_path)
 model = load_model(model_path)
-height, width = 96, 128
+height, width = 192, 256
 
 
 # ---------------------------------------------------------------------------
