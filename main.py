@@ -6,7 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import keras
 import tensorflow as tf
-from keras.callbacks import TensorBoard, ModelCheckpoint, Callback
+from keras.callbacks import TensorBoard, ModelCheckpoint, Callback, LearningRateScheduler, ReduceLROnPlateau
 from keras.layers import Input, Dense, Flatten, Dropout, Activation, Conv2D, MaxPool2D, AveragePooling2D
 from keras.layers.normalization import BatchNormalization
 from keras.models import Model, load_model
@@ -31,12 +31,35 @@ try:
 except:
     pass
 
+def lr_schedule(epoch):
+    """Learning Rate Schedule
+
+    Learning rate is scheduled to be reduced after 80, 120, 160, 180 epochs.
+    Called automatically every epoch as part of callbacks during training.
+
+    # Arguments
+        epoch (int): The number of epochs
+
+    # Returns
+        lr (float32): learning rate
+    """
+    lr = 1e-5
+    if epoch > 180:
+        lr *= 0.5e-3
+    elif epoch > 160:
+        lr *= 1e-3
+    elif epoch > 120:
+        lr *= 1e-2
+    elif epoch > 80:
+        lr *= 1e-1
+    print('Learning rate: ', lr)
+    return lr
 
 class SyncResultsWithOBS(Callback):
     def on_epoch_end(self, epoch, logs=None):
         try:
             resp = obs_client.putFile(bucketName=bucket_name, objectKey=target_path, file_path=source_path)
-            print(resp)
+            # print(resp)
         except:
             pass
 
@@ -76,41 +99,41 @@ def processing_data(data_path, height, width, batch_size=128, validation_split=0
         rescale=1. / 255,
         validation_split=validation_split)
 
-    img_list = img_list = glob.glob(os.path.join(data_path, '*/*.jpg'))
-    x = np.array(
-        [np.array([cv2.resize(cv2.imread(img_path), (width, height)),
-                   re.split("[\\\\|/]", img_path)[-2]]) for img_path in img_list])
-    if labels is None:
-        labels = set(x[:, 1])
-        labels = list(labels)
-    dic = {value: key for key, value in enumerate(labels)}
-    y = to_categorical([dic[lis] for lis in x[:, 1]])
-    x = np.stack(x[:, 0])
+    img_list = glob.glob(os.path.join(data_path, '*/*.jpg'))
+    # x = np.array(
+    #     [np.array([cv2.resize(cv2.imread(img_path), (width, height)),
+    #                re.split("[\\\\|/]", img_path)[-2]]) for img_path in img_list])
+    # if labels is None:
+    #     labels = set(x[:, 1])
+    #     labels = list(labels)
+    # dic = {value: key for key, value in enumerate(labels)}
+    # y = to_categorical([dic[lis] for lis in x[:, 1]])
+    # x = np.stack(x[:, 0])
+    #
+    # train_generator = train_data.flow(x, y, seed=0, subset="training", batch_size=batch_size)
+    # validation_generator = validation_data.flow(x, y, seed=0, subset="validation", batch_size=batch_size)
 
-    train_generator = train_data.flow(x, y, seed=0, subset="training", batch_size=batch_size)
-    validation_generator = validation_data.flow(x, y, seed=0, subset="validation", batch_size=batch_size)
-
-    # train_generator = train_data.flow_from_directory(
-    #     # 提供的路径下面需要有子目录
-    #     data_path,
-    #     # 整数元组 (height, width)，默认：(256, 256)。 所有的图像将被调整到的尺寸。
-    #     target_size=(height, width),
-    #     # 一批数据的大小
-    #     batch_size=batch_size,
-    #     # "categorical", "binary", "sparse", "input" 或 None 之一。
-    #     # 默认："categorical",返回one-hot 编码标签。
-    #     class_mode='categorical',
-    #     # 数据子集 ("training" 或 "validation")
-    #     subset='training',
-    #     seed=0)
-    # validation_generator = validation_data.flow_from_directory(
-    #     data_path,
-    #     target_size=(height, width),
-    #     batch_size=batch_size,
-    #     class_mode='categorical',
-    #     subset='validation',
-    #     seed=0)
-    # labels = train_generator.class_indices
+    train_generator = train_data.flow_from_directory(
+        # 提供的路径下面需要有子目录
+        data_path,
+        # 整数元组 (height, width)，默认：(256, 256)。 所有的图像将被调整到的尺寸。
+        target_size=(height, width),
+        # 一批数据的大小
+        batch_size=batch_size,
+        # "categorical", "binary", "sparse", "input" 或 None 之一。
+        # 默认："categorical",返回one-hot 编码标签。
+        class_mode='categorical',
+        # 数据子集 ("training" 或 "validation")
+        subset='training',
+        seed=0)
+    validation_generator = validation_data.flow_from_directory(
+        data_path,
+        target_size=(height, width),
+        batch_size=batch_size,
+        class_mode='categorical',
+        subset='validation',
+        seed=0)
+    labels = train_generator.class_indices
     return train_generator, validation_generator, img_list, labels
 
 
@@ -298,7 +321,14 @@ def train(model, train_generator, validation_generator, train_n, val_n, epoch_n,
         model_chkpt = ModelCheckpoint(best_path, 'val_accuracy', 1, True, mode='max')
     else:
         model_chkpt = ModelCheckpoint(best_path, 'val_acc', 1, True, mode='max')
-    callbacks = [tensorboard, model_chkpt, SyncResultsWithOBS()]
+    lr_scheduler = LearningRateScheduler(lr_schedule)
+
+    lr_reducer = ReduceLROnPlateau(factor=np.sqrt(0.1),
+                                   cooldown=0,
+                                   patience=5,
+                                   min_lr=0.5e-6)
+
+    callbacks = [tensorboard, model_chkpt, SyncResultsWithOBS(), lr_scheduler, lr_reducer]
     # 训练模型, fit_generator函数:https://keras.io/models/model/#fit_generator
     # 利用Python的生成器，逐个生成数据的batch并进行训练。
     # callbacks: 实例列表。在训练时调用的一系列回调。详见 https://keras.io/callbacks/。
@@ -397,11 +427,11 @@ def main():
     """
     # This one is without the step_per_epoch
     # 获取数据名称列表
-    height, width = 256, 256
-    batch_size = 32
+    height, width = 96, 128
+    batch_size = 64
     depth = 29  # depth should be 9n+2 (eg 56 or 110 in [b])
     class_number = 6
-    epoch_n = 200
+    epoch_n = 1000
     validation_split = 0.05
     learning_rate = 1e-4
     data_path = "./dataset-resized"
@@ -409,10 +439,10 @@ def main():
         os.listdir(data_path)
     except:
         data_path = "./datasets/la1ji1fe1nle4ishu4ju4ji22-momodel/dataset-resized"
-    model_save_path = "./results/cnn10.h5"  # 保存模型路径和名称
+    model_save_path = "./results/cnn11.h5"  # 保存模型路径和名称
     check_point_dir = "./results/chkpt/"
     log_dir = "./results/logs/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    best_path = "./results/best4.h5"
+    best_path = "./results/best6.h5"
 
     # 获取数据
     train_generator, test_generator, img_list, labels = processing_data(data_path, height, width, batch_size,

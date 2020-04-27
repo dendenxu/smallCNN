@@ -9,11 +9,11 @@ import cv2
 # 加载模型(请加载你认为的最佳模型)
 # 加载模型,加载请注意 model_path 是相对路径, 与当前文件同级。
 # 如果你的模型是在 results 文件夹下的 dnn.h5 模型，则 model_path = 'results/dnn.h5'
-model_path = "results/best.h5"
+model_path = "results/best2.h5"
 
 # 加载模型，如果采用keras框架训练模型，则 model=load_model(model_path)
 model = load_model(model_path)
-height, width = 256, 256
+height, width = 96, 128
 
 
 # ---------------------------------------------------------------------------
@@ -41,11 +41,11 @@ def predict(img):
     img = cv2.resize(img, (width, height))
     print(img.shape)
     # img = img.astype(int)
-    img = img[:, :, ::-1] * 1. / 255
+    # img = img[:, :, ::-1] * 1. / 255
     img = np.expand_dims(img, axis=0)
-    # labels = ['cardboard', 'glass', 'metal', 'paper', 'plastic', 'trash']
+    labels = ['cardboard', 'glass', 'metal', 'paper', 'plastic', 'trash']
     # labels = ['plastic', 'metal', 'glass', 'trash', 'paper', 'cardboard']
-    labels = ["paper", "glass", "plastic", "metal", "cardboard", "trash"]
+    # labels = ["paper", "glass", "plastic", "metal", "cardboard", "trash"]
     # 获取输入图片的类别
     y_predict = model.predict(img)
     y_predict = labels[np.argmax(y_predict)]
@@ -57,7 +57,7 @@ def predict(img):
 
 
 # 输入图片路径和名称
-img_path = 'metal.jpg'
+img_path = 'glass.jpg'
 
 # 打印该张图片的类别
 img = image.load_img(img_path)
