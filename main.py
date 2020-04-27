@@ -6,30 +6,42 @@ import numpy as np
 import matplotlib.pyplot as plt
 import keras
 import tensorflow as tf
-from keras.callbacks import TensorBoard, ModelCheckpoint
+from keras.callbacks import TensorBoard, ModelCheckpoint, Callback
 from keras.layers import Input, Dense, Flatten, Dropout, Activation, Conv2D, MaxPool2D, AveragePooling2D
 from keras.layers.normalization import BatchNormalization
-from keras.models import Model
+from keras.models import Model, load_model
 from keras.preprocessing.image import ImageDataGenerator
 from keras.utils import to_categorical
 from keras.optimizers import Adam
 from keras.regularizers import l2
+from keras.preprocessing import image
+import datetime
 
 try:
     from obs import ObsClient
-    AK='IT0BUVSNXM64EU0XOGQ8'
-    SK='j8dkml5YbEsiMZuqfs7CapoZQM5NxnumlfogeCpc'
-    obs_endpoint='obs.cn-north-4.myhuaweicloud.com'
-    obs_client = ObsClient(AK, SK, is_secure=True,server=obs_endpoint)
+
+    AK = 'IT0BUVSNXM64EU0XOGQ8'
+    SK = 'j8dkml5YbEsiMZuqfs7CapoZQM5NxnumlfogeCpc'
+    obs_endpoint = 'obs.cn-north-4.myhuaweicloud.com'
+    obs_client = ObsClient(AK, SK, is_secure=True, server=obs_endpoint)
 
     bucket_name = "dataset.kaggle.garbage"
-    source_abs_path = "results"
-    target_abs_path = "garbage/" + source_abs_path
+    source_path = "results"
+    target_path = "garbage/" + source_path
 except:
     pass
 
 
-def processing_data(data_path, height, width, batch_size=128, validation_split=0.1):
+class SyncResultsWithOBS(Callback):
+    def on_epoch_end(self, epoch, logs=None):
+        try:
+            resp = obs_client.putFile(bucketName=bucket_name, objectKey=target_path, file_path=source_path)
+            print(resp)
+        except:
+            pass
+
+
+def processing_data(data_path, height, width, batch_size=128, validation_split=0.1, labels=None):
     """
     数据处理
     :param data_path: 带有子目录的数据集路径
@@ -68,14 +80,15 @@ def processing_data(data_path, height, width, batch_size=128, validation_split=0
     x = np.array(
         [np.array([cv2.resize(cv2.imread(img_path), (width, height)),
                    re.split("[\\\\|/]", img_path)[-2]]) for img_path in img_list])
-    labels = set(x[:, 1])
-    labels = list(labels)
+    if labels is None:
+        labels = set(x[:, 1])
+        labels = list(labels)
     dic = {value: key for key, value in enumerate(labels)}
     y = to_categorical([dic[lis] for lis in x[:, 1]])
     x = np.stack(x[:, 0])
 
-    train_generator = train_data.flow(x, y)
-    validation_generator = validation_data.flow(x, y)
+    train_generator = train_data.flow(x, y, seed=0, subset="training", batch_size=batch_size)
+    validation_generator = validation_data.flow(x, y, seed=0, subset="validation", batch_size=batch_size)
 
     # train_generator = train_data.flow_from_directory(
     #     # 提供的路径下面需要有子目录
@@ -266,7 +279,7 @@ def cnn_model(input_shape, learning_rate=1e-4, depth=34, class_number=6):
 
 
 def train(model, train_generator, validation_generator, train_n, val_n, epoch_n, model_save_path='results/cnn.h5',
-          log_dir="results/logs/", batch_size=128):
+          log_dir="results/logs/", best_path="results/best2.h5", batch_size=128):
     """
     :param model: 我们训练出的模型
     :param train_generator: 训练集
@@ -281,12 +294,11 @@ def train(model, train_generator, validation_generator, train_n, val_n, epoch_n,
     """
     # 可视化，TensorBoard 是由 Tensorflow 提供的一个可视化工具。
     tensorboard = TensorBoard(log_dir)
-    best_path = "results/best.h5"
     if int(keras.__version__.split(".")[1]) >= 3:
         model_chkpt = ModelCheckpoint(best_path, 'val_accuracy', 1, True, mode='max')
     else:
         model_chkpt = ModelCheckpoint(best_path, 'val_acc', 1, True, mode='max')
-    callbacks = [tensorboard, model_chkpt]
+    callbacks = [tensorboard, model_chkpt, SyncResultsWithOBS()]
     # 训练模型, fit_generator函数:https://keras.io/models/model/#fit_generator
     # 利用Python的生成器，逐个生成数据的batch并进行训练。
     # callbacks: 实例列表。在训练时调用的一系列回调。详见 https://keras.io/callbacks/。
@@ -347,6 +359,34 @@ def plot_training_history(res):
     plt.show()
 
 
+# def evaluate(model, validation_generator, labels):
+#     """
+#     加载模型、模型预测并展示模型预测结果等
+#     :param validation_generator: 预测数据
+#     :param labels: 数据标签
+#     :return:
+#     """
+#
+#     # 测试集数据与标签
+#     test_x, test_y = validation_generator.__getitem__(2)
+#
+#     # 预测值
+#     preds = model.predict(test_x)
+#
+#     # 绘制预测图像的预测值和真实值，定义画布
+#     plt.figure(figsize=(16, 16))
+#     for i in range(16):
+#         # 绘制各个子图
+#         plt.subplot(4, 4, i + 1)
+#
+#         # 图片名称
+#         plt.title(
+#             'pred:%s / truth:%s' % (labels[np.argmax(preds[i])], labels[np.argmax(test_y[i])]))
+#
+#         # 展示图片
+#         plt.imshow(test_x[i])
+#     plt.show()
+
 
 def main():
     """
@@ -361,7 +401,7 @@ def main():
     batch_size = 32
     depth = 29  # depth should be 9n+2 (eg 56 or 110 in [b])
     class_number = 6
-    epoch_n = 100
+    epoch_n = 200
     validation_split = 0.05
     learning_rate = 1e-4
     data_path = "./dataset-resized"
@@ -369,9 +409,10 @@ def main():
         os.listdir(data_path)
     except:
         data_path = "./datasets/la1ji1fe1nle4ishu4ju4ji22-momodel/dataset-resized"
-    model_save_path = "./results/cnn7.h5"  # 保存模型路径和名称
+    model_save_path = "./results/cnn10.h5"  # 保存模型路径和名称
     check_point_dir = "./results/chkpt/"
-    log_dir = "./results/logs"
+    log_dir = "./results/logs/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    best_path = "./results/best4.h5"
 
     # 获取数据
     train_generator, test_generator, img_list, labels = processing_data(data_path, height, width, batch_size,
@@ -382,11 +423,13 @@ def main():
     model = cnn_model((height, width, 3), learning_rate, depth, class_number)
     model.summary()
     history, model = train(model, train_generator, test_generator, len(img_list),
-                           len(img_list), epoch_n, model_save_path, log_dir, batch_size)
+                           len(img_list), epoch_n, model_save_path, log_dir, best_path, batch_size)
     plot_training_history(history)
+    print(labels)
     # 评估模型
-    # evaluate(history, save_model_path)
+    # evaluate(model, test_generator, labels)
+    return train_generator, test_generator, img_list, labels
 
 
 if __name__ == '__main__':
-    main()
+    train_generator, test_generator, img_list, labels = main()
