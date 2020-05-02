@@ -10,10 +10,13 @@ import cv2
 # 加载模型,加载请注意 model_path 是相对路径, 与当前文件同级。
 # 如果你的模型是在 results 文件夹下的 dnn.h5 模型，则 model_path = 'results/dnn.h5'
 model_path = "results/best9.h5"
+model_assist_path = "results/best.h5"
 
 # 加载模型，如果采用keras框架训练模型，则 model=load_model(model_path)
-model = load_model(model_path)
+# model = load_model(model_path)
+model_assist = load_model(model_assist_path)
 height, width = 128, 128
+height_a, width_a = 256, 256
 
 
 # ---------------------------------------------------------------------------
@@ -38,57 +41,29 @@ def predict(img):
     if img.shape[0] > img.shape[1] // 4 * 3:
         img = img[img[1] // 8 + 1:-img[1] // 8 - 1]
     print(img.shape)
+    img_a = cv2.resize(img, (height_a, width_a))
     img = cv2.resize(img, (width, height))
     print(img.shape)
     # img = img.astype(int)
     # img = img[:, :, ::-1] * 1. / 255
     img = img * 1. / 255
+    img_a = img_a[:, :, ::-1] * 1. / 255
     img = np.expand_dims(img, axis=0)
+    img_a = np.expand_dims(img_a, axis=0)
     labels = ['cardboard', 'glass', 'metal', 'paper', 'plastic', 'trash']
     # labels = ['plastic', 'metal', 'glass', 'trash', 'paper', 'cardboard']
     # labels = ["paper", "glass", "plastic", "metal", "cardboard", "trash"]
     # 获取输入图片的类别
-    y_predict = model.predict(img)
-    y_predict = labels[np.argmax(y_predict)]
+    # y_predict = model.predict(img)
+    y_predict_a = model_assist.predict(img_a)
+    y_predict_a[:, 0] = y_predict_a[:, 5]
+    y_predict_a[:, 2] = y_predict_a[:, 3]
+    y_predict_a[:, 3] = y_predict_a[:, 0]
+    y_predict_a[:, 4] = y_predict_a[:, 2]
+    # y_predict = labels[np.argmax(y_predict+y_predict_a)]
+    y_predict = labels[np.argmax(y_predict_a)]
 
     # -------------------------------------------------------------------------
 
     # 返回图片的类别
     return y_predict
-
-
-# 输入图片路径和名称
-img_path = 'paper.jpg'
-
-# 打印该张图片的类别
-img = image.load_img(img_path)
-print(predict(img))
-
-
-def plot_load_and_model_prediction(test_generator, labelsP, labelsO):
-    """
-    加载模型、模型预测并展示模型预测结果等
-    :param validation_generator: 预测数据
-    :param labels: 数据标签
-    :return:
-    """
-
-    # 测试集数据与标签
-    test_x, test_y = test_generator.__getitem__(2)
-
-    # 预测值
-    preds = model.predict(test_x)
-
-    # 绘制预测图像的预测值和真实值，定义画布
-    plt.figure(figsize=(16, 16))
-    for i in range(16):
-        # 绘制各个子图
-        plt.subplot(4, 4, i + 1)
-
-        # 图片名称
-        plt.title(
-            'pred:%s / truth:%s' % (labelsP[np.argmax(preds[i])], labelsO[np.argmax(test_y[i])]))
-
-        # 展示图片
-        plt.imshow(test_x[i])
-    plt.show()

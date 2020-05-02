@@ -31,6 +31,7 @@ try:
 except:
     pass
 
+
 def lr_schedule(epoch):
     """Learning Rate Schedule
 
@@ -55,6 +56,7 @@ def lr_schedule(epoch):
     print('Learning rate: ', lr)
     return lr
 
+
 class SyncResultsWithOBS(Callback):
     def on_epoch_end(self, epoch, logs=None):
         try:
@@ -64,7 +66,7 @@ class SyncResultsWithOBS(Callback):
             pass
 
 
-def processing_data(data_path, height, width, batch_size=128, validation_split=0.1, labels=None):
+def processing_data(data_path, height, width, batch_size=128, validation_split=0.1, labels=None, cv=False):
     """
     数据处理
     :param data_path: 带有子目录的数据集路径
@@ -100,40 +102,41 @@ def processing_data(data_path, height, width, batch_size=128, validation_split=0
         validation_split=validation_split)
 
     img_list = glob.glob(os.path.join(data_path, '*/*.jpg'))
-    # x = np.array(
-    #     [np.array([cv2.resize(cv2.imread(img_path), (width, height)),
-    #                re.split("[\\\\|/]", img_path)[-2]]) for img_path in img_list])
-    # if labels is None:
-    #     labels = set(x[:, 1])
-    #     labels = list(labels)
-    # dic = {value: key for key, value in enumerate(labels)}
-    # y = to_categorical([dic[lis] for lis in x[:, 1]])
-    # x = np.stack(x[:, 0])
-    #
-    # train_generator = train_data.flow(x, y, seed=0, subset="training", batch_size=batch_size)
-    # validation_generator = validation_data.flow(x, y, seed=0, subset="validation", batch_size=batch_size)
+    if cv:
+        x = np.array(
+            [np.array([cv2.resize(cv2.imread(img_path), (width, height)),
+                       re.split("[\\\\|/]", img_path)[-2]]) for img_path in img_list])
+        if labels is None:
+            labels = set(x[:, 1])
+            labels = list(labels)
+        dic = {value: key for key, value in enumerate(labels)}
+        y = to_categorical([dic[lis] for lis in x[:, 1]])
+        x = np.stack(x[:, 0])
 
-    train_generator = train_data.flow_from_directory(
-        # 提供的路径下面需要有子目录
-        data_path,
-        # 整数元组 (height, width)，默认：(256, 256)。 所有的图像将被调整到的尺寸。
-        target_size=(height, width),
-        # 一批数据的大小
-        batch_size=batch_size,
-        # "categorical", "binary", "sparse", "input" 或 None 之一。
-        # 默认："categorical",返回one-hot 编码标签。
-        class_mode='categorical',
-        # 数据子集 ("training" 或 "validation")
-        subset='training',
-        seed=0)
-    validation_generator = validation_data.flow_from_directory(
-        data_path,
-        target_size=(height, width),
-        batch_size=batch_size,
-        class_mode='categorical',
-        subset='validation',
-        seed=0)
-    labels = train_generator.class_indices
+        train_generator = train_data.flow(x, y, seed=0, subset="training", batch_size=batch_size)
+        validation_generator = validation_data.flow(x, y, seed=0, subset="validation", batch_size=batch_size)
+    else:
+        train_generator = train_data.flow_from_directory(
+            # 提供的路径下面需要有子目录
+            data_path,
+            # 整数元组 (height, width)，默认：(256, 256)。 所有的图像将被调整到的尺寸。
+            target_size=(height, width),
+            # 一批数据的大小
+            batch_size=batch_size,
+            # "categorical", "binary", "sparse", "input" 或 None 之一。
+            # 默认："categorical",返回one-hot 编码标签。
+            class_mode='categorical',
+            # 数据子集 ("training" 或 "validation")
+            subset='training',
+            seed=0)
+        validation_generator = validation_data.flow_from_directory(
+            data_path,
+            target_size=(height, width),
+            batch_size=batch_size,
+            class_mode='categorical',
+            subset='validation',
+            seed=0)
+        labels = train_generator.class_indices
     return train_generator, validation_generator, img_list, labels
 
 
@@ -423,6 +426,88 @@ def plot_training_history(res):
 #     plt.show()
 
 
+def regular_cnn(input_shape, learning_rate=1e-4):
+    def bamcd(cnn, kernel_size=(5, 5), pool=False, drop=False):
+        cnn = BatchNormalization()(cnn)
+        cnn = Activation('relu')(cnn)
+        cnn = MaxPool2D()(cnn) if pool else cnn
+        cnn = Conv2D(32, kernel_size=kernel_size, padding="same")(cnn)
+        cnn = Dropout(0.1)(cnn) if drop else cnn
+        return cnn
+        # Batch Normalization + Activation + Max Pooling + Convolution + Dropout
+
+    # Define input shapes
+    inputs = Input(shape=input_shape)
+    cnn = inputs
+    # Stronger convolution kernel
+    for _ in range(5):
+        cnn = bamcd(cnn)
+    # Smaller convolution kernel
+    for _ in range(5):
+        cnn = bamcd(cnn, kernel_size=(3, 3), pool=True, drop=True)
+    # Flatten the input for Dense layers
+    cnn = Flatten()(cnn)
+    # Pile up some Dense layers
+    for _ in range(5):
+        cnn = Dense(64, activation="relu")(cnn)
+    for _ in range(5):
+        cnn = Dense(32, activation="relu")(cnn)
+    # Final output dense layer
+    cnn = Dense(6, activation="sigmoid")(cnn)
+    outputs = cnn
+    model = Model(inputs=inputs, outputs=outputs)
+    model.compile(
+        # 是优化器, 主要有Adam、sgd、rmsprop等方式。
+        optimizer=Adam(lr=learning_rate),
+        # 损失函数,多分类采用 categorical_crossentropy
+        loss='categorical_crossentropy',
+        # 是除了损失函数值之外的特定指标, 分类问题一般都是准确率
+        metrics=['accuracy'])
+
+    return model
+
+
+def regular_dnn(input_shape, learning_rate=1e-4):
+    inputs = Input(shape=input_shape)
+    dnn = Flatten()(inputs)  # Flatten the input: (?, 256, 256, 3) -> (256*256*3, )
+    dnn = Dense(6)(dnn)
+    dnn = BatchNormalization(axis=-1)(
+        dnn)  # Normalize the last layer's input, effective approach for dealing with gradient vanishing problem
+    dnn = Activation('sigmoid')(dnn)  # Add non-linearity
+    dnn = Dropout(0.25)(dnn)  # Leave out some of the results from the neural network
+    dnn = Dense(12)(dnn)
+    dnn = BatchNormalization(axis=-1)(dnn)
+    dnn = Activation('relu')(dnn)
+    dnn = Dropout(0.5)(dnn)
+    dnn = Dense(6)(dnn)
+    dnn = BatchNormalization(axis=-1)(dnn)
+    dnn = Activation('softmax')(dnn)
+    outputs = dnn
+    model = Model(inputs=inputs, outputs=outputs)
+    model.compile(
+        # 是优化器, 主要有Adam、sgd、rmsprop等方式。
+        optimizer=Adam(lr=learning_rate),
+        # 损失函数,多分类采用 categorical_crossentropy
+        loss='categorical_crossentropy',
+        # 是除了损失函数值之外的特定指标, 分类问题一般都是准确率
+        metrics=['accuracy'])
+
+    return model
+
+
+from keras.models import load_model
+from time import perf_counter
+
+
+def load_and_model_prediction(validation_generator, model_path):
+    start = perf_counter()
+    model = load_model(model_path)
+    end = perf_counter()
+    print("Took {:.4f} s to load the model".format(end - start))
+    loss, accuracy = model.evaluate_generator(validation_generator)
+    print("Loss: %.2f, Accuracy: %.2f%%" % (loss, accuracy * 100))
+
+
 def main():
     """
     深度学习模型训练流程,包含数据处理、创建模型、训练模型、模型保存、评价模型等。
@@ -432,8 +517,8 @@ def main():
     """
     # This one is without the step_per_epoch
     # 获取数据名称列表
-    height, width = 96, 128
-    batch_size = 64
+    height, width = 128, 128
+    batch_size = 128
     depth = 29  # depth should be 9n+2 (eg 56 or 110 in [b])
     class_number = 6
     epoch_n = 1000
