@@ -170,18 +170,10 @@ def resnet_layer(inputs,
                   kernel_regularizer=l2(1e-4))
 
     x = inputs
-    if conv_first:
-        x = conv(x)
-        if batch_normalization:
-            x = BatchNormalization()(x)
-        if activation is not None:
-            x = Activation(activation)(x)
-    else:
-        if batch_normalization:
-            x = BatchNormalization()(x)
-        if activation is not None:
-            x = Activation(activation)(x)
-        x = conv(x)
+    x = conv(x) if conv_first else x
+    x = BatchNormalization()(x) if batch_normalization else x
+    x = Activation(activation)(x) if activation is not None else x
+    x = conv(x) if not conv_first else x
     return x
 
 
@@ -218,50 +210,24 @@ def resnet_v2(input_shape, depth, num_classes=10):
 
     inputs = Input(shape=input_shape)
     # v2 performs Conv2D with BN-ReLU on input before splitting into 2 paths
-    x = resnet_layer(inputs=inputs,
-                     num_filters=num_filters_in,
-                     conv_first=True)
+    x = resnet_layer(inputs=inputs, num_filters=num_filters_in, conv_first=True)
 
     # Instantiate the stack of residual units
     for stage in range(3):
         for res_block in range(num_res_blocks):
-            activation = 'relu'
-            batch_normalization = True
-            strides = 1
-            if stage == 0:
-                num_filters_out = num_filters_in * 4
-                if res_block == 0:  # first layer and first stage
-                    activation = None
-                    batch_normalization = False
-            else:
-                num_filters_out = num_filters_in * 2
-                if res_block == 0:  # first layer but not first stage
-                    strides = 2  # downsample
-
+            activation = 'relu' if stage != 0 or res_block != 0 else None  # first layer and first stage
+            batch_normalization = True if stage != 0 or res_block != 0 else False  # first layer and first stage
+            strides = 1 if stage == 0 or res_block != 0 else 2  # first layer but not first stage, down-sample
+            num_filters_out = num_filters_in * (4 if stage == 0 else 2)  # first stage 4, others 2
             # bottleneck residual unit
-            y = resnet_layer(inputs=x,
-                             num_filters=num_filters_in,
-                             kernel_size=1,
-                             strides=strides,
-                             activation=activation,
-                             batch_normalization=batch_normalization,
-                             conv_first=False)
-            y = resnet_layer(inputs=y,
-                             num_filters=num_filters_in,
-                             conv_first=False)
-            y = resnet_layer(inputs=y,
-                             num_filters=num_filters_out,
-                             kernel_size=1,
-                             conv_first=False)
-            if res_block == 0:
-                # linear projection residual shortcut connection to match
-                # changed dims
-                x = resnet_layer(inputs=x,
-                                 num_filters=num_filters_out,
-                                 kernel_size=1,
-                                 strides=strides,
-                                 activation=None,
-                                 batch_normalization=False)
+            y = resnet_layer(inputs=x, num_filters=num_filters_in, kernel_size=1, strides=strides,
+                             activation=activation, batch_normalization=batch_normalization, conv_first=False)
+            y = resnet_layer(inputs=y, num_filters=num_filters_in, conv_first=False)
+            y = resnet_layer(inputs=y, num_filters=num_filters_out, kernel_size=1, conv_first=False)
+            # linear projection residual shortcut connection to match
+            # changed dims
+            x = resnet_layer(inputs=x, num_filters=num_filters_out, kernel_size=1, strides=strides, activation=None,
+                             batch_normalization=False) if res_block == 0 else x
             x = keras.layers.add([x, y])
 
         num_filters_in = num_filters_out
@@ -272,9 +238,7 @@ def resnet_v2(input_shape, depth, num_classes=10):
     x = Activation('relu')(x)
     x = AveragePooling2D(pool_size=8)(x)
     y = Flatten()(x)
-    outputs = Dense(num_classes,
-                    activation='softmax',
-                    kernel_initializer='he_normal')(y)
+    outputs = Dense(num_classes, activation='softmax', kernel_initializer='he_normal')(y)
 
     # Instantiate model.
     model = Model(inputs=inputs, outputs=outputs)
