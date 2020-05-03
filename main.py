@@ -14,6 +14,7 @@ from keras.preprocessing.image import ImageDataGenerator
 from keras.utils import to_categorical
 from keras.optimizers import Adam
 from keras.regularizers import l2
+from keras.layers import LeakyReLU
 from keras.preprocessing import image
 import datetime
 
@@ -172,7 +173,7 @@ def resnet_layer(inputs,
     x = inputs
     x = conv(x) if conv_first else x
     x = BatchNormalization()(x) if batch_normalization else x
-    x = Activation(activation)(x) if activation is not None else x
+    x = (Activation(activation)(x) if activation is not "lrelu" else LeakyReLU()(x)) if activation is not None else x
     x = conv(x) if not conv_first else x
     return x
 
@@ -231,6 +232,7 @@ def resnet_v2(input_shape, depth, num_classes=10):
             x = keras.layers.add([x, y])
 
         num_filters_in = num_filters_out
+        x = Dropout(0.2)(x)
 
     # Add classifier on top.
     # v2 has BN-ReLU before Pooling
@@ -481,8 +483,8 @@ def main():
     """
     # This one is without the step_per_epoch
     # 获取数据名称列表
-    height, width = 128, 128
-    batch_size = 128
+    height, width = 256, 256
+    batch_size = 16
     depth = 29  # depth should be 9n+2 (eg 56 or 110 in [b])
     class_number = 6
     epoch_n = 1000
@@ -493,10 +495,10 @@ def main():
         os.listdir(data_path)
     except:
         data_path = "./datasets/la1ji1fe1nle4ishu4ju4ji22-momodel/dataset-resized"
-    model_save_path = "./results/cnn13.h5"  # 保存模型路径和名称
+    model_save_path = "./results/resnet_final.h5"  # 保存模型路径和名称
     check_point_dir = "./results/chkpt/"
     log_dir = "./results/logs/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    best_path = "./results/best8.h5"
+    best_path = "./results/resnet_best.h5"
 
     # 获取数据
     train_generator, test_generator, img_list, labels = processing_data(data_path, height, width, batch_size,
