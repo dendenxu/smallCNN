@@ -17,6 +17,12 @@ from keras.regularizers import l2
 from keras.layers import LeakyReLU
 from keras.preprocessing import image
 import datetime
+import keras
+import tensorflow as tf
+
+gpu_options = tf.GPUOptions(allow_growth=True)
+sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
+keras.backend.tensorflow_backend.set_session(sess)
 
 try:
     from obs import ObsClient
